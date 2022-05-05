@@ -1,5 +1,19 @@
 apply plugin: 'com.android.library'
+buildscript {
+    ext {
+        RNNKotlinVersion = "1.6.0"
+    }
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        google()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.1.3'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$RNNKotlinVersion"
+    }
 
+}
 def safeExtGet(prop, fallback) {
     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
@@ -21,11 +35,37 @@ android {
 dependencies {
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
+//    implementation 'com.github.tonyofrancis.Fetch:xfetch2:3.1.6'
+
     if (project.properties['android.useAndroidX'] == 'true' || project.properties['android.useAndroidX'] == true) {
-        api "androidx.tonyodev.fetch2:xfetch2:3.1.6"
-        implementation "androidx.tonyodev.fetch2okhttp:xfetch2okhttp:3.1.6"
+//        api "androidx.tonyodev.fetch2:xfetch2:3.1.6"
+//        implementation "androidx.tonyodev.fetch2okhttp:xfetch2okhttp:3.1.6"
+        implementation "androidx.tonyodev.fetch2:xfetch2:3.1.6"
+        implementation "androidx.tonyodev.fetch2rx:xfetch2rx:3.1.6"
     } else {
-        api "com.tonyodev.fetch2:fetch2:3.0.12"
-        implementation "com.tonyodev.fetch2okhttp:fetch2okhttp:3.0.12"
+//        api "com.tonyodev.fetch2:fetch2:3.0.12"
+//        implementation "com.tonyodev.fetch2okhttp:fetch2okhttp:3.0.12"
+        implementation "com.tonyodev.fetch2:fetch2:3.0.12"
+        implementation "com.tonyodev.fetch2rx:fetch2rx:3.0.12"
+
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        maven {
+            // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+            url("$rootDir/../node_modules/react-native/android")
+        }
+        maven {
+            // Android JSC is installed from npm
+            url("$rootDir/../node_modules/jsc-android/dist")
+        }
+
+        google()
+        jcenter()
+        maven { url 'https://www.jitpack.io' }
     }
 }

@@ -14,8 +14,8 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.tonyodev.fetch2.Download;
+import com.tonyodev.fetch2.FetchErrorUtils;
 import com.tonyodev.fetch2core.Downloader;
-import com.tonyodev.fetch2okhttp.OkHttpDownloader;
 import com.tonyodev.fetch2.Error;
 import com.tonyodev.fetch2.Fetch;
 import com.tonyodev.fetch2.FetchConfiguration;
@@ -28,6 +28,7 @@ import com.tonyodev.fetch2core.DownloadBlock;
 import com.tonyodev.fetch2core.Func;
 import com.tonyodev.fetch2.HttpUrlConnectionDownloader;
 import com.tonyodev.fetch2core.Downloader;
+import com.tonyodev.fetch2rx.RxFetch;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -44,6 +45,7 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
+import io.reactivex.functions.Consumer;
 import okhttp3.OkHttpClient;
 
 import java.util.Set;
@@ -75,7 +77,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule imp
     put(Status.NONE, TASK_CANCELING);
   }};
 
-  private Fetch fetch;
+  private RxFetch fetch;
   private Map<String, Integer> idToRequestId = new HashMap<>();
   @SuppressLint("UseSparseArrays")
   private Map<Integer, RNBGDTaskConfig> requestIdToConfig = new HashMap<>();
@@ -88,18 +90,22 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule imp
     super(reactContext);
 
     OkHttpClient okHttpClient = new OkHttpClient.Builder().build();
-    final Downloader okHttpDownloader = new OkHttpDownloader(okHttpClient,
-                Downloader.FileDownloaderType.PARALLEL);
 
+//    final Downloader okHttpDownloader = new OkHttpDownloader(okHttpClient,
+//                Downloader.FileDownloaderType.PARALLEL);
+
+//    OkHttpDownloader okHttpDownloader = new OkHttpDownloader(okHttpClient);
     loadConfigMap();
     FetchConfiguration fetchConfiguration = new FetchConfiguration.Builder(this.getReactApplicationContext())
             .setDownloadConcurrentLimit(4)
-            .setHttpDownloader(okHttpDownloader)
+//            .setHttpDownloader(okHttpDownloader)
             .enableRetryOnNetworkGain(true)
             .setHttpDownloader(new HttpUrlConnectionDownloader(Downloader.FileDownloaderType.PARALLEL))
             .build();
-    fetch = Fetch.Impl.getInstance(fetchConfiguration);
-    fetch.addListener(this);
+    fetch = RxFetch.Impl.getRxInstance(fetchConfiguration);
+
+//    fetch = Fetch.Impl.getInstance(fetchConfiguration);
+//    fetch.addListener(this);
   }
 
   @Override
@@ -222,30 +228,57 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule imp
     request.setPriority(options.hasKey("priority") ? Priority.valueOf(options.getInt("priority")) : Priority.NORMAL);
     request.setNetworkType(options.hasKey("network") ? NetworkType.valueOf(options.getInt("network")) : NetworkType.ALL);
 
-    fetch.enqueue(request, new Func<Request>() {
-        @Override
-        public void call(Request download) {
-        }
-      }, new Func<Error>() {
-        @Override
-        public void call(Error error) {
-          //An error occurred when enqueuing a request.
+    fetch.getDownloads()
+            .asFlowable()
+            .subscribe(new Consumer<List<Download>>() {
+              @Override
+              public void accept(List<Download> downloads) throws Exception {
+                //Access results
+              }
+            }, new Consumer<Throwable>() {
+              @Override
+              public void accept(Throwable throwable) {
+                //An error occurred
+                final Error error = FetchErrorUtils.getErrorFromThrowable(throwable);
 
-          WritableMap params = Arguments.createMap();
-          params.putString("id", id);
-          params.putString("error", error.toString());
+                WritableMap params = Arguments.createMap();
+                params.putString("id", id);
+                params.putString("error", error.toString());
 
-          int convertedErrCode = convertErrorCode(error);
-          params.putInt("errorcode", convertedErrCode);
-          ee.emit("downloadFailed", params);
+                int convertedErrCode = convertErrorCode(error);
+                params.putInt("errorcode", convertedErrCode);
+                ee.emit("downloadFailed", params);
 
-          removeFromMaps(request.getId());
-          fetch.remove(request.getId());
+                removeFromMaps(request.getId());
+                fetch.remove(request.getId());
 
-          Log.e(getName(), "Error in enqueue: " + error.toString() + ":" + error.getValue());
-        }
-      }
-    );
+                Log.e(getName(), "Error in enqueue: " + error.toString() + ":" + error.getValue());
+              }
+            });
+//    fetch.enqueue(request, new Func<Request>() {
+//        @Override
+//        public void call(Request download) {
+//        }
+//      }, new Func<Error>() {
+//        @Override
+//        public void call(Error error) {
+//          //An error occurred when enqueuing a request.
+//
+//          WritableMap params = Arguments.createMap();
+//          params.putString("id", id);
+//          params.putString("error", error.toString());
+//
+//          int convertedErrCode = convertErrorCode(error);
+//          params.putInt("errorcode", convertedErrCode);
+//          ee.emit("downloadFailed", params);
+//
+//          removeFromMaps(request.getId());
+//          fetch.remove(request.getId());
+//
+//          Log.e(getName(), "Error in enqueue: " + error.toString() + ":" + error.getValue());
+//        }
+//      }
+//    );
 
     synchronized(sharedLock) {
       lastProgressReport = new Date();
@@ -287,37 +320,72 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule imp
 
   @ReactMethod
   public void checkForExistingDownloads(final Promise promise) {
-    fetch.getDownloads(new Func<List<Download>>() {
-      @Override
-      public void call(@NotNull List<Download> downloads) {
-        WritableArray foundIds = Arguments.createArray();
+//    fetch.getDownloads(new Func<List<Download>>() {
+//      @Override
+//      public void call(@NotNull List<Download> downloads) {
+//        WritableArray foundIds = Arguments.createArray();
+//
+//        synchronized(sharedLock) {
+//          for (Download download : downloads) {
+//            if (requestIdToConfig.containsKey(download.getId())) {
+//              RNBGDTaskConfig config = requestIdToConfig.get(download.getId());
+//              WritableMap params = Arguments.createMap();
+//              params.putString("id", config.id);
+//              params.putInt("state", stateMap.get(download.getStatus()));
+//              params.putInt("bytesWritten", (int)download.getDownloaded());
+//              params.putInt("totalBytes", (int)download.getTotal());
+//              params.putDouble("percent", ((double)download.getProgress()) / 100);
+//
+//              foundIds.pushMap(params);
+//
+//              // TODO: MAYBE ADD headers
+//
+//              idToRequestId.put(config.id, download.getId());
+//              config.reportedBegin = true;
+//            } else {
+//              fetch.delete(download.getId());
+//            }
+//          }
+//        }
+//
+//        promise.resolve(foundIds);
+//      }
+//    });
 
-        synchronized(sharedLock) {
-          for (Download download : downloads) {
-            if (requestIdToConfig.containsKey(download.getId())) {
-              RNBGDTaskConfig config = requestIdToConfig.get(download.getId());
-              WritableMap params = Arguments.createMap();
-              params.putString("id", config.id);
-              params.putInt("state", stateMap.get(download.getStatus()));
-              params.putInt("bytesWritten", (int)download.getDownloaded());
-              params.putInt("totalBytes", (int)download.getTotal());
-              params.putDouble("percent", ((double)download.getProgress()) / 100);
+    fetch.getDownloads()
+            .asFlowable()
+            .subscribe(new Consumer<List<Download>>() {
+              WritableArray foundIds = Arguments.createArray();
 
-              foundIds.pushMap(params);
+              @Override
+              public void accept(List<Download> downloads) throws Exception {
 
-              // TODO: MAYBE ADD headers
+                synchronized(sharedLock) {
+                  for (Download download : downloads) {
+                    if (requestIdToConfig.containsKey(download.getId())) {
+                      RNBGDTaskConfig config = requestIdToConfig.get(download.getId());
+                      WritableMap params = Arguments.createMap();
+                      params.putString("id", config.id);
+                      params.putInt("state", stateMap.get(download.getStatus()));
+                      params.putInt("bytesWritten", (int)download.getDownloaded());
+                      params.putInt("totalBytes", (int)download.getTotal());
+                      params.putDouble("percent", ((double)download.getProgress()) / 100);
 
-              idToRequestId.put(config.id, download.getId());
-              config.reportedBegin = true;
-            } else {
-              fetch.delete(download.getId());
-            }
-          }
-        }
+                      foundIds.pushMap(params);
 
-        promise.resolve(foundIds);
-      }
-    });
+                      // TODO: MAYBE ADD headers
+
+                      idToRequestId.put(config.id, download.getId());
+                      config.reportedBegin = true;
+                    } else {
+                      fetch.delete(download.getId());
+                    }
+                  }
+                }
+                promise.resolve(foundIds);
+              }
+
+            });
   }
 
   // Fetch API
